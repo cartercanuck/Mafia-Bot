@@ -1,0 +1,2797 @@
+package mafia_bot;
+
+import java.util.*;
+
+import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.entities.*;
+import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
+import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionAddEvent;
+import net.dv8tion.jda.api.events.message.priv.PrivateMessageReceivedEvent;
+import net.dv8tion.jda.api.hooks.ListenerAdapter;
+
+public class Game extends ListenerAdapter {
+	
+	private User[] players;
+	private String[] names;
+	private Member[] playersM;
+	private int[][] playerActions;
+	private User Host;
+	private int numPlayers;
+	private int[] roleList;
+	private int[] voteList;
+	private int[] List;
+	private int[] counterList;
+	private int[] BlockList;
+	private int[] VetList;
+	private int[] WWList;
+	private int[] DocList;
+	private int[] LoopList;
+	private int[] FrameList;
+	private int[] antiVList;
+	private int[] TargetList;
+	private Boolean game = false;
+	private Boolean setup = false;
+	private Boolean joining = false;
+	private Boolean deal = false;
+	private Boolean list = false;
+	private Boolean night = false;
+	private Boolean vote = false;
+	private Boolean winner = false;
+	private int Cr=1;
+	private int any=0;
+	private int count=1;
+	private int dead=0;
+	private int Linkc=1;
+	private TextChannel channel;
+	private String reactionDe = "☠";
+	private String reactionBr = "💔";
+	private String reactionBl = "💫";
+	private String reactionNd = "👌";
+	private String reactionWi = "🎉";
+	private String reactionHe = "🛡";
+	private String reactionKK = "❗";
+	private String reactionTM = "™";
+
+	//this is where the bot gets commands from the main channel
+	@Override
+	public void onGuildMessageReceived(GuildMessageReceivedEvent event) {
+		//ignore bots
+		if (event.getAuthor().isBot()) return;
+		String[] args = event.getMessage().getContentRaw().split("\\s+");
+		
+		//starting point, checks that no game is currently running
+		if((args[0].equalsIgnoreCase("!start"))&&(game==false)) {
+			if(args.length<2) {
+				//in case input is incorrect
+				event.getChannel().sendTyping().queue();
+				event.getChannel().sendMessage("Error, please add the number of players after \"!start\".").queue();
+				return;
+			}
+			try {
+				@SuppressWarnings("unused")
+				int o= Integer.parseInt(args[1]);
+			}
+			catch (NumberFormatException hmm) {
+				channel.sendMessage("Error, incorrect input.").queue();
+				return;
+			}
+			//saves hosts ID as well as channel for further use
+			Host = event.getAuthor();
+			channel = event.getChannel();
+			String P = args[1];
+			if(args.length>=3) {
+				//checks for all any gamemode input
+				if(args[2].equalsIgnoreCase("any")) any=1;
+			}
+			//sends info to initialize game
+			GameStart(P, any, event);
+			return;
+		}
+		//specific role setup, checks that the game is in setup mode
+		else if((args[0].equalsIgnoreCase("!add"))&&(Host==(event.getAuthor()))&&(channel==(event.getChannel()))&&(setup!=false)) {
+			if(args.length<3) {
+				//in case input is incorrect
+				channel.sendTyping().queue();
+				channel.sendMessage("Error, please add a role ID / an amount of this role.").queue();
+				return;
+			}
+			int R, N;
+			//check for error
+			try {
+				R= Integer.parseInt(args[1]);
+				N= Integer.parseInt(args[2]);
+			}
+			catch (NumberFormatException hmm) {
+				channel.sendMessage("Error, incorrect input.").queue();
+				return;
+			}
+			if((R==6)||(R==11)||(R==15)||(R==16)||(R==19)||(R==23)) {
+				if(N>1) {
+					//in case incorrect input
+					channel.sendTyping().queue();
+					channel.sendMessage("Error, this role is a unique role, plese try again.").queue();
+					return;
+				}
+			}
+			if((R==6)||(R==11)||(R==15)||(R==16)||(R==19)||(R==23)) {
+				for(int i=1;i<numPlayers;i++) {
+					if(roleList[i]==R) {
+						//in case input is incorrect
+						channel.sendTyping().queue();
+						channel.sendMessage("Error, this unique role is already in the game, "
+								+ "please try again.").queue();
+						return;
+					}
+				}
+			}
+			if((numPlayers-Cr)>=N) {
+				//lets host know that addition worked, and how many spots are left
+				channel.sendTyping().queue();
+				channel.sendMessage(N +" "+ GetRole(R, 0) +"(s) has/have been added to the game.").queue();
+				SetRoles(R, N, Cr, event);
+				if(Cr==numPlayers) {
+					//if roles are all entered, next step is unlocked
+					Cr=1;
+					channel.sendTyping().queue();
+					channel.sendMessage("All roles are entered, please react to this message to join!")
+					.queue(message -> message.addReaction(reactionKK).queue());
+					setup=false; 
+					joining=true;
+				}
+			}
+			else { 
+				//in case input is incorrect
+				channel.sendMessage("You only have "+ (numPlayers-Cr) +" roles left to enter, "
+						+ "please try again.").queue();
+			}
+			return;
+		}
+		//roles are given out
+		else if((args[0].equalsIgnoreCase("!deal"))&&(Host==(event.getAuthor()))&&(channel==(event.getChannel()))&&(deal!=false)) {
+			GiveRoles(event);
+			night = true;
+			list=true;
+			//game checks for any promotions, then starts the first night
+			CheckUpgrade();
+			NightMode();
+			deal=false;
+			
+			return;
+		}
+		//list of current roles 
+		else if((args[0].equalsIgnoreCase("!roles"))&&(Host==(event.getAuthor()))&&(channel==(event.getChannel()))&&(list!=false)) { 
+				if(any!=1) {
+					String list=GetRole(1,0);
+					for(int j=2;j<numPlayers;j++) {
+						list= list + "\n"+GetRole(j,0);
+					}
+					EmbedBuilder roles = new EmbedBuilder().setTitle("This game is running the following roles:")
+						.setDescription(list)
+						.setColor(0x0000ff);
+					channel.sendMessage(roles.build()).queue();
+					return;
+				}
+				//blocked for all any gamemode
+				else {
+					channel.sendTyping().queue();
+					channel.sendMessage("This command is disabled for \"All Any\", sorry.").queue();
+				}
+		}
+		//debug mode, used only when the night doesn't end
+		else if((args[0].equalsIgnoreCase("!mdebug"))&&(Host==(event.getAuthor()))&&(channel==(event.getChannel()))&&(night==true)) {
+			channel.sendTyping().queue();
+			channel.sendMessage("Jump-starting to day").queue();
+			vote=true;
+			night=false;
+			//attempts to calculate what happened based on wat inputs were properly sent through
+			//this makes it easier to figure out what went wrong
+			Math();
+			CheckWin();
+			return;
+		}
+		//game tells lobby who is still alive
+		else if((args[0].equalsIgnoreCase("!live"))&&(Host==(event.getAuthor()))&&(channel==(event.getChannel()))
+				&&(vote!=false)&&(args.length==1)) {
+			String list="";
+			for(int j=1;j<numPlayers;j++) {
+				if(playerActions[j][1]==1) {
+					String k = names[j];
+					int t = j;
+					if(j==1) list= list + k +" ("+t+")";
+					else list= list + "\n"+ k +" ("+t+")";
+				}
+			}
+			EmbedBuilder alive = new EmbedBuilder().setTitle("The following people are alive:")
+					.setDescription(list)
+					.setFooter("The host can type \"!roles\" to see what roles are in the match", null)
+					.setColor(0x0000ff);
+			channel.sendMessage(alive.build()).queue();
+			return;
+		}
+		//general voting system
+		else if((args[0].equalsIgnoreCase("!vote"))&&(channel==(event.getChannel()))&&(vote!=false)&&(args.length>1)) {
+			int v=0, p=0;
+			User temp = event.getAuthor();
+			int c=0, extra=0, split=0, kill=0, sk=0;
+			if(temp==Host) sk=1;
+			//check to see if debug has been activated
+			if(!(args[1].equalsIgnoreCase("skip")&&(sk==1))) {
+				//checks that the user has the ability to vote (dead or already voted)
+				for(int i=1;i<numPlayers;i++) {
+					if((players[i].equals(temp))&&(playerActions[i][1]!=0)&&(playerActions[i][13]==0)) {
+						p=i;
+					}
+				}
+				if(p==0) {
+					channel.sendMessage("Fuck you").queue();
+					return;
+				}
+				//check input is a number
+				try {
+					v=Integer.parseInt(args[1]);
+				}
+				catch (NumberFormatException hmm) {
+					return;
+				}
+				//stops vote against immune players
+				for(int j=1;j<numPlayers;j++) {
+					if(antiVList[j]==v) v=0;
+				}
+				//in case input is incorrect
+				if((v>0)&&(v<numPlayers)&&(playerActions[v][1]!=0)) {
+					//records that the user has now voted
+					playerActions[p][13]=1;
+					
+					//records how many players are still alive
+					for(int j=1;j<numPlayers;j++) {
+						if(playerActions[j][1]==1) {
+							c++;
+						}
+						//adds a vote slot for this role
+						if((playerActions[j][0]==28)&&(playerActions[j][2]!=2)) { //for Polling Officer votes
+							c++;
+						}
+					}
+					for(int j=1;j<numPlayers;j++) {
+						if(voteList[j]==v) {
+							counterList[j]++;
+							extra=1;
+							channel.sendTyping().queue();
+							channel.sendMessage("Thank you for voting.").queue();
+							j=numPlayers;
+						}
+					}
+					//if vote target is new, they are added to the poll
+					if(extra==0) {
+						voteList[count]=v;
+						counterList[count]=1;
+						channel.sendTyping().queue();
+						channel.sendMessage("Thank you for voting.").queue();
+					}
+					//checks if everyone has voted
+					if(count==c) {
+						split=1;
+					}
+					//increases count for next user
+					count++;
+					//if everyone has voted, voting ends and results are calculated
+					if(split==0) return;
+				}
+				else {
+					//in case input is incorrect
+					channel.sendTyping().queue();
+					channel.sendMessage("error, attempted to vote off a dead/nonexistant/immune player, try again.").queue();
+					return;
+				}	
+			}
+			count=1;
+			int max=0;
+			//player with the most votes dies, ties mean no death
+			for(int i=1;i<numPlayers;i++) {
+				if(counterList[i]>max) {
+					max=counterList[i];
+					kill=voteList[i];
+				}
+				else if(counterList[i]==max) {
+					kill=0;
+				}
+			}
+			//upon a death, game goes through all the steps
+			if(kill!=0) {
+				playerActions[kill][1]=0;
+				channel.sendTyping().queue();
+				channel.sendMessage(names[kill] +" was voted off by the town!")
+				.queue(message -> message.addReaction(reactionDe).queue());
+				//checks for a parasite link
+				CheckLink(kill);
+				for(int j=1;j<numPlayers;j++) {
+					if(playerActions[j][1]==0) {
+						roleList[j]=0;
+					}
+					if(playerActions[j][1]==1) {
+						playerActions[j][13]=0;
+					}
+					
+				}
+				//checks for jester
+				if(playerActions[kill][0]==8) {
+					channel.sendTyping().queue();
+					channel.sendMessage(names[kill] +" was the jester, they won!")
+					.queue(message -> message.addReaction(reactionWi).queue());	
+					playerActions[kill][5]=1;
+				}
+				//checks for G.A./bounty hunter update
+				for(int i=1;i<numPlayers;i++) {
+					if(playerActions[i][0]==11) {
+						//sets G.A. to jester upon failed task
+						if(playerActions[i][3]==kill) {
+							players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Your target "
+								+ "died! You are now a jester"))
+							.queue(message -> message.addReaction(reactionKK).queue());
+							playerActions[i][0]=8;
+							playerActions[i][5]=0;
+							SendRole(i, 0);
+						}
+					}
+					if(playerActions[i][0]==24) {
+						if(playerActions[i][3]==kill) {
+							players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You killed your target!"))
+							.queue(message -> message.addReaction(reactionKK).queue());
+							channel.sendTyping().queue();
+							channel.sendMessage(names[kill] +" was the Bounty Hunters target, they won!")
+							.queue(message -> message.addReaction(reactionWi).queue());	
+						}
+					}
+				}
+				SendTeam(event);
+				if(CheckHunter()==false) {
+					vote=false;
+					night=true;
+					//checks if game ends
+					if(CheckWin()==false) {
+						//checks for promotions and updates to players
+						CheckUpgrade();
+						NightMode();
+						//night starts again, and the cycle repeats
+						return;
+					}
+				}
+			}
+			//upon no death, etc..
+			else {
+				channel.sendTyping().queue();
+				channel.sendMessage("No one was voted off by the town!")
+				.queue(message -> message.addReaction(reactionNd).queue());
+				for(int j=1;j<numPlayers;j++) {
+					if(playerActions[j][1]==1) {
+						playerActions[j][13]=0;
+					}
+				}
+				vote=false;
+				night=true;
+				//checks updates, then night starts again, and the cycle repeats
+				SendTeam(event);
+				NightMode();
+				return;
+			}
+			return;
+		}
+		//replay with same players
+		else if((args[0].equalsIgnoreCase("!again"))&&(Host==(event.getAuthor()))&&(channel==(event.getChannel()))&&(winner!=false)) {
+			if(any!=1) {
+				//for same roles
+				deal=true;
+				RemoveTeam(event);
+				count=1;
+				Linkc=1;
+				for(int i=1;i<numPlayers;i++) {
+					playerActions[i][1]=1; //0=dead, 1=alive
+					playerActions[i][2]=2; //2 == do nothing (usually)
+					playerActions[i][3]=0; //default 0
+					playerActions[i][4]=0; //default 0
+					playerActions[i][5]=0; //default 0
+					playerActions[i][6]=0; //0=false, 1 = true
+					playerActions[i][7]=0; //0=false, 1 = true
+					playerActions[i][8]=0; //0=false, 1 = true
+					playerActions[i][9]=0; //0=false, 1 = true
+					playerActions[i][10]=0; //0=false, 1 = true
+					playerActions[i][11]=0; //0=false, 1 = true
+					playerActions[i][12]=0; //0=default
+					playerActions[i][13]=0; //0=default, 1 = voted
+					voteList[i]=0;
+					counterList[i]=0;
+					antiVList[i]=0;
+				}
+				channel.sendTyping().queue();
+				channel.sendMessage("Replay mode selected, please type \"!deal\" to start again").queue();
+			}
+			else { 
+				//for all any
+				deal=true;
+				RemoveTeam(event);
+				count=1;
+				Linkc=1;
+				for(int i=1;i<numPlayers;i++) {
+					playerActions[i][1]=1; //0=dead, 1=alive
+					playerActions[i][2]=2; //2 == do nothing (usually)
+					playerActions[i][3]=0; //default 0
+					playerActions[i][4]=0; //default 0
+					playerActions[i][5]=0; //default 0
+					playerActions[i][6]=0; //0=false, 1 = true
+					playerActions[i][7]=0; //0=false, 1 = true
+					playerActions[i][8]=0; //0=false, 1 = true
+					playerActions[i][9]=0; //0=false, 1 = true
+					playerActions[i][10]=0; //0=false, 1 = true
+					playerActions[i][11]=0; //0=false, 1 = true
+					playerActions[i][12]=0; //0=default
+					playerActions[i][13]=0; //0=default, 1 = voted
+					voteList[i]=0;
+					counterList[i]=0;
+					antiVList[i]=0;
+				}
+				//select new random roles
+				int[] tempA= new int[(numPlayers)];
+				for(int i=1;i<numPlayers;i++) {
+					tempA[i]=0;
+				}
+				int x=69, r=1;
+				do {
+					tempA[r]=(int)(Math.random()*28)+1;
+					//checks for unique roles
+					if((tempA[r]==6)||(tempA[r]==11)||(tempA[r]==15)||(tempA[r]==16)||(tempA[r]==19)||(tempA[r]==23)) {
+						int y=0;
+						for(int i=1;i<numPlayers;i++) {
+							if((tempA[i]==tempA[r])&&(i!=r)) {
+								y=1;
+								tempA[r]=0;
+							}
+						}
+						if(y==0) r++;
+					}
+					else r++;
+					//ends loop is role list is full
+					if(tempA[numPlayers-1]!=0) x=420;
+				} while(x==69);
+				//transfers list
+				for(int i=1;i<numPlayers;i++) {	
+					List[i]=tempA[i];
+				}
+				channel.sendTyping().queue();
+				channel.sendMessage("All-Any replay mode selected, please type \"!deal\" to start again").queue();
+			}
+			return;
+		}
+		//end game, works at any point by host
+		else if((args[0].equalsIgnoreCase("!done"))&&(Host==(event.getAuthor()))&&(channel==(event.getChannel()))&&(game!=false)) {
+			game = false;
+			setup = false;
+			joining = false;
+			deal = false;
+			night = false;
+			vote = false;
+			list=false;
+			winner=false;
+			RemoveTeam(event);
+			for(int j=0;j<numPlayers;j++) {
+				players[j]=null;
+				names[j]=null;
+				playersM[j]=null;
+				roleList[j]=0;
+				voteList[j]=0;
+				List[j]=0;
+				counterList[j]=0;
+				BlockList[j]=0;
+				VetList[j]=0;
+				WWList[j]=0;
+				DocList[j]=0;
+				LoopList[j]=0;
+				FrameList[j]=0;
+				antiVList[j]=0;
+				TargetList[j]=0;
+			}
+			count=1;
+			Cr=1;
+			dead=0;
+			Linkc=1;
+			any=0;
+			channel.sendTyping().queue();
+			channel.sendMessage("Game ended, type \"!start\" with the "
+					+ "new number of players so you can play again")
+			.queue(message -> message.addReaction(reactionTM).queue());
+			return;
+		}
+		return;
+	}
+	
+	//game start function
+	public void GameStart(String P, int any, GuildMessageReceivedEvent event) {
+		game = true;
+		numPlayers = Integer.parseInt(P)+1;
+		players = new User[numPlayers];
+		names = new String[numPlayers];
+		playersM = new Member[numPlayers];
+		roleList = new int[numPlayers];
+		List = new int[numPlayers];
+		voteList = new int[numPlayers];
+		BlockList = new int[numPlayers];
+		VetList = new int[numPlayers];
+		WWList = new int[numPlayers];
+		DocList = new int[numPlayers];
+		LoopList = new int[numPlayers];
+		FrameList = new int[numPlayers];
+		TargetList = new int[numPlayers];
+		counterList = new int[numPlayers];
+		antiVList = new int[numPlayers];
+		playerActions = new int[numPlayers][14]; 
+		//0=role, 1=alive, 2=action, 3=target(1), 4=target(2), 5=charges left, 6=immune?
+		//7=evil?, 8=poison?, 9=doused?, 10=G-immune?, 11=cupid link?, 12=team, 13=voted
+		for(int i=1;i<numPlayers;i++) {
+			playerActions[i][1]=1; //0=dead, 1=alive
+			playerActions[i][2]=2; //2 == do nothing (usually)
+			playerActions[i][3]=0; //default 0
+			playerActions[i][4]=0; //default 0
+			playerActions[i][5]=0; //default 0
+			playerActions[i][6]=0; //0=false, 1 = true
+			playerActions[i][7]=0; //0=false, 1 = true
+			playerActions[i][8]=0; //0=false, 1 = true
+			playerActions[i][9]=0; //0=false, 1 = true
+			playerActions[i][10]=0; //0=false, 1 = true
+			playerActions[i][11]=0; //0=false, 1 = true
+			playerActions[i][12]=0; //0=default
+			playerActions[i][13]=0; //0=default, 1 = voted
+		}
+		channel.sendTyping().queue();
+		channel.sendMessage("A game with "+ (numPlayers-1) +" people has started.").queue();
+		//for all any mode
+		if(any==1) { 
+			int[] tempA= new int[(numPlayers)];
+			for(int i=1;i<numPlayers;i++) {
+				tempA[i]=0;
+			}
+			int x=69, r=1;
+			do {
+				tempA[r]=(int)(Math.random()*28)+1;
+				//checks for unique roles
+				if((tempA[r]==6)||(tempA[r]==11)||(tempA[r]==15)||(tempA[r]==16)||(tempA[r]==19)||(tempA[r]==23)) {
+					int y=0;
+					for(int i=1;i<numPlayers;i++) {
+						if((tempA[i]==tempA[r])&&(i!=r)) {
+							y=1;
+							tempA[r]=0;
+						}
+					}
+					if(y==0) r++;
+				}
+				else r++;
+				//ends loop is role list is full
+				if(tempA[numPlayers-1]!=0) x=420;
+			} while(x==69);
+			//transfers list
+			for(int i=1;i<numPlayers;i++) {	
+				List[i]=tempA[i];
+			}
+			//debug to test all any after new character patch
+			/*setup=true;
+			for(int i=1;i<numPlayers;i++) {	
+				event.getChannel().sendMessage(GetRole(roleList[i], 0)).queue();
+			}
+			setup=false;*/
+			//players now enter the game
+			channel.sendTyping().queue();
+			channel.sendMessage("All roles are entered, please react to this message to join!")
+			.queue(message -> message.addReaction(reactionKK).queue());
+			joining=true;
+			list=true;
+		}
+		else {
+			//setup may now begin
+			setup=true;
+			channel.sendTyping().queue();
+			channel.sendMessage("Please enter the roles you wish to use for this game.").queue();
+			channel.sendMessage("To do so, enter \"!add\" then the role ID and the amount of this role "
+					+ "(ex: \"!add 1 2\").").queue();
+			channel.sendMessage("Go to #mafia-roles to see the role IDs.").queue();
+		}
+	}
+	
+	//set role function
+	public void SetRoles(int R, int N, int c, GuildMessageReceivedEvent event) {
+		//adds role R, N times. c is current role count
+		for(int i=1, j = c;i<=N;i++, j++) {
+			List[j] = R;
+		}
+		//calculates remaining amount
+		Cr=Cr+N;
+		if((numPlayers-Cr)>0) {
+			channel.sendTyping().queue();
+			channel.sendMessage((numPlayers-Cr) +" roles left to enter."
+					+ "\nGo to #mafia-roles to see the role IDs.").queue();
+		}
+	}
+	
+	//players join through reaction function
+	@Override
+	public void onGuildMessageReactionAdd(GuildMessageReactionAddEvent event) {
+		//stop bots
+		if(event.getUser().isBot()) return;
+		//joining function
+		else if(joining!=false) {
+			//checks if player has already joined
+			for(int i=1;i<numPlayers;i++) {
+				if(players[i]!=null) {
+					if(players[i].equals(event.getUser())) {
+						return;
+					}
+				}
+			}
+			//adds player to list, then checks if full
+			JoinGame(Cr, event);
+			Cr++;
+			if(Cr==numPlayers) {
+				joining=false; 
+				deal = true;
+				Cr=1;
+				channel.sendTyping().queue();
+				channel.sendMessage("The game is now full, the host must type \"!deal\" to give roles.").queue();
+			}
+			return;
+		}
+			
+	}
+	
+	//join game function
+	public void JoinGame(int c, GuildMessageReactionAddEvent event) {
+		//records player info
+		players[c] = event.getUser(); 
+		playersM[c] = event.getMember();
+		names[c] = playersM[c].getNickname();
+		channel.sendTyping().queue();
+		channel.sendMessage(names[c] +" has joined the game.")
+		.queue(message -> message.addReaction(reactionWi).queue());
+		return;
+	}
+	
+	//gives roles function
+	public void GiveRoles(GuildMessageReceivedEvent event) {
+		int[] tempA= new int[(numPlayers-1)];
+		for(int i=0, j=1;i<tempA.length;i++, j++) {	
+			tempA[i]=List[j];
+		}
+		//roles are given randomly
+		Random rand = new Random();
+		int temp=0;
+		for(int i=1;i<tempA.length;i++) {
+			int randomIndexToSwap = rand.nextInt(tempA.length);
+			temp = tempA[randomIndexToSwap];
+			tempA[randomIndexToSwap] = tempA[i];
+			tempA[i] = temp;
+		}
+		for(int i=0, j=1;j<numPlayers;i++, j++) {	
+			roleList[j]=tempA[i];
+		}
+		//roles are sent to the players
+		for(int i=1;i<numPlayers;i++) {
+			playerActions[i][0]=roleList[i];
+			SendRole(i, 0);
+			int t=i;
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Your ID number is: "+ t +"."))
+			.queue(message -> message.addReaction(reactionKK).queue());
+		}
+		//updates are checked
+		SendTeam(event);
+		channel.sendTyping().queue();
+		channel.sendMessage("Every player should now have a role.").queue();
+	}
+	//give teams function
+	public void SendTeam(GuildMessageReceivedEvent event) {
+		for(int i=1;i<numPlayers;i++) {
+			//gives mafia their chat
+			if((playerActions[i][12]==2)&&(playerActions[i][1]!=0)
+					&&(playersM[i].getRoles().contains(event.getGuild().getRolesByName("mafia", true).get(0))==false)) {
+				Member member= playersM[i];
+				Role role = event.getGuild().getRolesByName("mafia", true).get(0);
+				event.getGuild().addRoleToMember(member, role).queue();
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You "
+						+ "were added to the mafia chat")).queue();
+			}
+			//gives vampires their chat
+			else if((playerActions[i][12]==6)&&(playerActions[i][1]!=0)
+			&&(playersM[i].getRoles().contains(event.getGuild().getRolesByName("vampire", true).get(0))==false)) {
+				Member member= playersM[i];
+				Role role = event.getGuild().getRolesByName("vampire", true).get(0);
+				event.getGuild().addRoleToMember(member, role).queue();
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You "
+						+ "were added to the vampire chat")).queue();
+			}
+		}  
+		return;
+	}
+	//take teams function
+	public void RemoveTeam(GuildMessageReceivedEvent event) {
+		for(int i=1;i<numPlayers;i++) {
+			//removes mafia chat
+			if(playerActions[i][12]==2) {
+				Member member= playersM[i];
+				Role role = event.getGuild().getRolesByName("mafia", true).get(0);
+				event.getGuild().removeRoleFromMember(member, role).queue();
+			}
+			//removes vampire chat
+			else if(playerActions[i][12]==6) {
+				Member member= playersM[i];
+				Role role = event.getGuild().getRolesByName("vampire", true).get(0);
+				event.getGuild().removeRoleFromMember(member, role).queue();
+			}
+		}
+		return;
+	}
+	//send night announcement and check who has actions
+	public void NightMode() {
+		channel.sendTyping().queue();
+		channel.sendMessage("Night is starting, everyone must send me their actions privately.").queue();
+		//moon stuff
+		int moon=0;
+		if(deal!=true) {
+			int c=0;
+			//check live players, if below 1/3 left, moon every night
+			for(int i=1;i<numPlayers;i++) {
+				if(playerActions[i][1]==1) c++;
+			}
+			if(c<=((numPlayers-1)/3)) {
+				moon=0;
+			}
+			else moon=(int)(Math.random()*(3));
+		}
+		else moon=1;
+		for(int i=1;i<numPlayers;i++) {
+			int p=0;
+			//records which players dont need to do anything
+			if((playerActions[i][0]==1)||(playerActions[i][0]==8)||(playerActions[i][0]==18)||(playerActions[i][0]==20)
+					||(playerActions[i][0]==24)||(playerActions[i][0]==26)) {
+				roleList[i]=0;
+			}
+			//once actions are all used
+			if((playerActions[i][0]==4)||(playerActions[i][0]==5)||(playerActions[i][0]==27)
+					||(playerActions[i][0]==10)||(playerActions[i][0]==11)||(playerActions[i][0]==22)) {
+				if(playerActions[i][5]==0)
+					roleList[i]=0;
+				else p=1;
+			}
+			//records if jester is active
+			if((playerActions[i][0]==8)&&(playerActions[i][1]==0)&&(playerActions[i][5]==1)) {
+				roleList[i]=1;
+			}
+			//checks if ww can attack or not
+			if((moon!=0)&&(playerActions[i][0]==23)) { 
+				roleList[i]=0;
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("It is not a full moon tonight.")).queue();
+			}
+			//stops vigilante from attacking night 1
+			if((playerActions[i][0]==4)&&(playerActions[i][4]==1)) {
+				roleList[i]=0;
+			}
+			//updates polling officer for a new night
+			if(playerActions[i][0]==28) {
+				playerActions[i][2]=2;
+			}
+			//game tells inactive people they have nothing to do
+			if(roleList[i]==0) {
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You have no actions to take, "
+						+ "the night will end soon.")).queue();
+			}
+			//tells active people to do their thing
+			else if((roleList[i]!=0)||(playerActions[i][0]==11)){
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Please enter your action now. "
+						+ "\n(Type \"!help\" to see all commands)"))
+				.queue();
+				//tell people how many actions they have left
+				if(p==1) {
+					int c=i;
+					players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You have "+playerActions[c][5]+" "
+						+ "actions left.")).queue(message -> message.addReaction(reactionKK).queue());
+				}
+				//tells players who is alive
+				String list="";
+				for(int j=1;j<numPlayers;j++) {
+					if((playerActions[j][1]==1)&&(i!=j)) {
+						String k = names[j];
+						int t = j;
+						if(j==1) list= list + k +" ("+t+")";
+						else list= list + "\n"+ k +" ("+t+")";
+					}
+				}
+				EmbedBuilder alive = new EmbedBuilder().setTitle("The following people are alive:")
+						.setDescription(list)
+						.setColor(0x0000ff);
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(alive.build())).queue();
+			}
+			//full moon
+			if(moon==0) {
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("It is a full moon tonight!")).queue();
+			}
+		}
+	}
+
+	//bot gets private commands here
+	@Override
+	public void onPrivateMessageReceived(PrivateMessageReceivedEvent event) {
+		//stop bots
+		if(event.getAuthor().isBot()) return;
+		String[] args = event.getMessage().getContentRaw().split("\\s+");
+		//get actions from players function
+		if((args[0].equalsIgnoreCase("!do"))&&(night!=false)) {
+			User member = event.getAuthor();
+			int A;
+			//check for incorrect input
+			try {
+				A= Integer.parseInt(args[1]);
+				if(A>numPlayers) {
+					member.openPrivateChannel().flatMap(channel -> channel.sendMessage(
+						"Error, incorrect action input.")).queue();
+					return;
+				}
+				if(A<1) {
+					member.openPrivateChannel().flatMap(channel -> channel.sendMessage(
+						"Error, incorrect action input.")).queue();
+					return;
+				}
+			}
+			catch (NumberFormatException hmm) {
+				member.openPrivateChannel().flatMap(channel -> channel.sendMessage("Error, incorrect action input.")).queue();
+				return;
+			}
+			//giant checker to make sure the player didnt mess up
+			for(int i=1;i<numPlayers;i++) {
+				if(member.equals(players[i])) {
+					if((playerActions[i][1]==0)&&(playerActions[i][0]!=11)&&(playerActions[i][0]!=8)) {
+						member.openPrivateChannel().flatMap(channel -> channel.sendMessage("You are dead.")).queue(); 
+						return; //stops dead people
+					}
+					if(roleList[i]==0) {
+						member.openPrivateChannel().flatMap(channel -> channel.sendMessage("You dont have any actions, please "
+								+ "just wait patiently for the night to end.")).queue();
+						AllReady(event);
+						return; //stops people who don't have actions
+					}
+					playerActions[i][2]=A;
+					//checks first input slot for if they can skip night
+					if((playerActions[i][2]==2)&&(playerActions[i][0]!=13)&&(playerActions[i][0]!=23)&&(playerActions[i][0]!=27)) {
+						//Parasite must link to someone night 1
+						if((playerActions[i][0]==10)&&(playerActions[i][5]==1)) { 
+							players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("error, the Parasite must "
+									+ "link to someone on night one.")).queue();
+							return; 
+						}
+						//Jester must kill after being hanged
+						if((playerActions[i][0]==8)&&(playerActions[i][5]==1)) { 
+							players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("error, the Jester must "
+									+ "kill someone after being voted.")).queue();
+							return; 
+						}
+						member.openPrivateChannel().flatMap(channel -> channel.sendMessage("Action recieved, the night "
+								+ "will end soon.")).queue(message -> message.addReaction(reactionNd).queue()); 
+						AllReady(event);
+						return;
+					}
+					//checks first input slot for if they can skip (specific characters)
+					if(playerActions[i][2]==3) {
+							if((playerActions[i][0]==13)||(playerActions[i][0]==23)||(playerActions[i][0]==27)) {
+								member.openPrivateChannel().flatMap(channel -> channel.sendMessage("Action recieved, the night "
+										+ "will end soon.")).queue(message -> message.addReaction(reactionNd).queue()); 
+								AllReady(event);
+								return; 
+							}
+					}
+					//arso igniting and ww ambushing
+					if((playerActions[i][0]==13)||(playerActions[i][0]==23)) { 
+						if(playerActions[i][2]==2) {
+							players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Action recieved, the "
+								+ "night will end soon.")).queue(message -> message.addReaction(reactionNd).queue());
+							AllReady(event);
+							return;
+						}
+					}
+					//GA saving their target
+					if(playerActions[i][0]==11) { 
+						players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Action recieved, the "
+								+ "night will end soon.")).queue(message -> message.addReaction(reactionNd).queue());
+						AllReady(event);
+						return;
+					}
+					//checks second input slot for if they can target properly
+					if(args.length>=3) {
+						//
+						try {
+							A= Integer.parseInt(args[2]);
+							if(A>numPlayers) {
+								member.openPrivateChannel().flatMap(channel -> channel.sendMessage(
+									"Error, incorrect 1st target input.")).queue();
+								return;
+							}
+							if(A<1) {
+								member.openPrivateChannel().flatMap(channel -> channel.sendMessage(
+									"Error, incorrect 1st target input.")).queue();
+								return;
+							}
+						}
+						catch (NumberFormatException hmm) {
+							member.openPrivateChannel().flatMap(channel -> channel.sendMessage(
+									"Error, incorrect 1st target input.")).queue();
+							return;
+						}
+						//no dead targets
+						if((playerActions[A][1]==0)&&(playerActions[i][0]!=9)) {
+							member.openPrivateChannel().flatMap(channel -> channel.sendMessage("You cannot target a dead"
+									+ " person, please try again.")).queue();
+							return;
+						}
+						//doctor rules
+						if(playerActions[i][0]==2) { 
+							if(playerActions[i][3]==A) {
+								member.openPrivateChannel().flatMap(channel -> channel.sendMessage("You can not heal the same "
+										+ "person twice, please try again.")).queue();
+								return;
+							}
+						}
+						//analyst rules
+						if((playerActions[i][0]==25)&&(A==i)) { 
+							member.openPrivateChannel().flatMap(channel -> channel.sendMessage("You can not target"
+								+ " yourself, please try again.")).queue();
+							return;
+						}
+						//amnesiac rules
+						if(playerActions[i][0]==9) { 
+							if((playerActions[A][0]==11)||(playerActions[A][0]==15)||(playerActions[A][0]==16)||(playerActions[A][0]==19)
+								||(playerActions[A][0]==24)||(playerActions[A][1]==1)) {
+								member.openPrivateChannel().flatMap(channel -> channel.sendMessage("The player you selected is a "
+										+ "role that you can not become, please try again with someone else.")).queue();
+								return;
+							}
+						}
+						playerActions[i][3]=A;
+						//checks third input slot for if they can target properly
+						if((args.length>=4)&&(!(playerActions[i][0]==6)||(playerActions[i][0]==25))) {
+							//check for incorrect input
+							try {
+								A= Integer.parseInt(args[3]);
+								if(A>numPlayers) {
+									member.openPrivateChannel().flatMap(channel -> channel.sendMessage(
+										"Error, incorrect 2nd target input.")).queue();
+									return;
+								}
+								if(A<1) {
+									member.openPrivateChannel().flatMap(channel -> channel.sendMessage(
+										"Error, incorrect 1st target input.")).queue();
+									return;
+								}
+							}
+							catch (NumberFormatException hmm) {
+								member.openPrivateChannel().flatMap(channel -> channel.sendMessage
+										("Error, incorrect 2nd target input.")).queue();
+								return;
+							}
+							//no dead targets
+							if(playerActions[A][1]==0) { 
+								member.openPrivateChannel().flatMap(channel -> channel.sendMessage("You cannot target a dead"
+										+ "/non existant person, please try again.")).queue();
+								return;
+							}
+							//analyst rules part 2
+							if((playerActions[i][0]==25)&&(A==i)) { 
+								member.openPrivateChannel().flatMap(channel -> channel.sendMessage("You can not target"
+										+ " yourself, please try again.")).queue();
+								return;
+							}
+							playerActions[i][4]=A;
+						}
+						//these roles need two targets
+						else if((playerActions[i][0]==6)||(playerActions[i][0]==25)) {
+							players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("error, please enter "
+									+ "a second target value after \"!do\". \nType \"!help\" if you are confused.")).queue();
+							return;
+						}
+					}
+					//general error message to player
+					else if(playerActions[i][0]!=5) {
+						players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("error, please enter "
+								+ "a target value after \"!do\". \nType \"!help\" if you are confused.")).queue();
+						return;
+					}
+					//everything worked, the players job is done
+					players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Action recieved, the "
+							+ "night will end soon.")).queue(message -> message.addReaction(reactionNd).queue());
+					AllReady(event);
+					return;
+				}
+			}
+		}
+		//hunter needs to kill function
+		else if(args[0].equalsIgnoreCase("!kill")) {
+			User member = event.getAuthor();
+			int A;
+			//check for incorrect input
+			try {
+				A= Integer.parseInt(args[1]);
+			}
+			catch (NumberFormatException hmm) {
+				member.openPrivateChannel().flatMap(channel -> channel.sendMessage("Error, incorrect target input.")).queue();
+				return;
+			}
+			for(int i=1;i<numPlayers;i++) {
+				//checks that it is time to kill
+				if(member.equals(players[i])) {
+					if((playerActions[i][0]==26)&&(playerActions[i][1]==0)&&(playerActions[i][5]==1)) {
+						//general target error catch
+						if((A<=0)||(A>numPlayers)||(playerActions[A][1]==0)) {
+							member.openPrivateChannel().flatMap(channel -> channel.sendMessage("You cannot target a dead"
+									+ "/non-existant person, please try again.")).queue();
+							return;
+							
+						}
+						member.openPrivateChannel().flatMap(channel -> channel.sendMessage("Action recieved."))
+						.queue(message -> message.addReaction(reactionNd).queue());
+						playerActions[A][1]=0;
+						playerActions[i][5]=0;
+						players[A].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+								+ "shot by the Hunter! You are dead.")).queue(message -> message.addReaction(reactionDe).queue());
+						channel.sendTyping().queue();
+						channel.sendMessage(names[A] +" was shot by the Hunter!")
+						.queue(message -> message.addReaction(reactionDe).queue());
+						CheckLink(A);
+						for(int j=1;j<numPlayers;j++) {
+							if(playerActions[j][1]==0) {
+								playerActions[j][13]=1;
+							}
+						}
+						CheckUpgrade();
+						//switch to day/night
+						vote=!vote;
+						night=!night;
+						if(CheckWin()==false) {
+							if(vote==true) channel.sendMessage("The host can type \"!live\" to see who is still here.").queue();
+							else {
+								CheckUpgrade();
+								NightMode();
+							}
+						}
+					}
+				}
+			}
+			return;
+		}
+		//to see roles (in private)
+		else if((args[0].equalsIgnoreCase("!roles"))&&(list!=false)) {
+			if(any!=1) {
+				String list=GetRole(1,0);
+				for(int j=2;j<numPlayers;j++) {
+					list= list + "\n"+GetRole(j,0);
+				}
+				EmbedBuilder roles = new EmbedBuilder().setTitle("This game is running the following roles:")
+					.setDescription(list)
+					.setColor(0x0000ff);
+				event.getAuthor().openPrivateChannel().flatMap(channel -> channel.sendMessage(roles.build())).queue();
+				return;
+			}
+			else 
+				event.getAuthor().openPrivateChannel().flatMap(channel -> channel.sendMessage("This command "
+					+ "is disabled for \"All Any\", sorry.")).queue();
+			
+		}
+		else if((args[0].equalsIgnoreCase("!actions"))&&(game!=false)) {
+			User member=event.getAuthor();
+			for(int i=1;i<numPlayers;i++) {
+				if(member.equals(players[i])) {
+					SendRole(i, 1);
+				}
+			}
+		}	
+		//help command for private dms
+		else if((args[0].equalsIgnoreCase("!help"))&&(game!=false)) {
+			EmbedBuilder helper = new EmbedBuilder().setTitle("Help Pannel")
+					.setDescription("To send actions, type \"!do\" followed by your action number, then your"
+							+ " (first) target. If you have a second target, it follows after.\n(ex:!do 1 3 4)"
+							+ "\nType \"!actions\" to see the what actions you can take."
+							+ "\n\nType \"!roles\" to see the roles that are in the match.")
+					.setColor(0xFFFFFF);
+			event.getAuthor().openPrivateChannel().flatMap(channel -> channel.sendMessage(helper.build())).queue();
+		}	
+	}
+	//all actions received function
+	public void AllReady(PrivateMessageReceivedEvent event) { 
+		User member = event.getAuthor();
+		//records that they did  their action
+		for(int i=1;i<numPlayers;i++) {
+			if(member.equals(players[i])) {
+				roleList[i]=0;
+			}
+		}
+		//stops function if someone hasn't done their action yet
+		for(int i=1;i<numPlayers;i++) {
+			if(roleList[i]!=0) {
+				return;
+			}
+		}
+		//starts to end the night
+		for(int i=1;i<numPlayers;i++) {
+			if(playerActions[i][1]==1) {
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("The day has started!"))
+				.queue(message -> message.addReaction(reactionKK).queue());
+			}
+		}
+		//reset actions for later
+		for(int i=1;i<numPlayers;i++) {
+			if((playerActions[i][1]!=0)||(playerActions[i][0]==11)) 
+				roleList[i]=1;
+		}
+		channel.sendTyping().queue();
+		channel.sendMessage("All players ready, let the day begin!").queue();
+		channel.sendMessage("---------------------------------").queue();
+		//tells math function to start
+		Math();
+		//checks if hunter died
+		if(CheckHunter()==false) {
+			vote=true;
+			night=false;
+			//checks if the game is over
+			if(CheckWin()==false)
+				channel.sendMessage("The host can type \"!live\" to see who is still here.").queue();
+		}
+	} 
+	//check for a win function
+	public boolean CheckWin() { 
+		int team=0;
+		for(int i=1;i<numPlayers;i++) {
+			if(playerActions[i][1]==1) {
+				team=playerActions[i][12];
+				//loop for town
+				if(team==1) {
+					for(int j=1;j<numPlayers;j++) {
+						if((playerActions[j][1]==1)&&(playerActions[j][12]==2)) {
+							return false;
+						}
+						if((playerActions[j][1]==1)&&(playerActions[j][12]==3)) {
+							return false;
+						}
+						if((playerActions[j][1]==1)&&(playerActions[j][12]==5)) {
+							return false;
+						}
+						if((playerActions[j][i]==1)&&(playerActions[j][12]==6)) {
+							return false;
+						}	
+					}
+					//if loop gets here, town have won the game
+					channel.sendTyping().queue();
+					channel.sendMessage("---------------------------------").queue();
+					channel.sendMessage("Town win the game!").queue(message -> message.addReaction(reactionWi).queue());
+					for(int k=1;k<numPlayers;k++) {
+						//check for GA win
+						if((playerActions[k][0]==11)&&(playerActions[playerActions[k][3]][1]==1)) {
+							channel.sendMessage("Guardian Angel also wins the game!")
+							.queue(message -> message.addReaction(reactionWi).queue());
+						}
+						//check for Parasite win
+						if((playerActions[k][0]==10)&&(playerActions[k][1]==1)) {
+							channel.sendMessage(names[k]+" wins as a Parasite!")
+							.queue(message -> message.addReaction(reactionWi).queue());
+						}
+					}
+					channel.sendMessage("Enter either \"!again\" to play with the same players, or \"!done\" to end match.").queue();
+					winner=true;
+					night=false;
+					vote=false;
+					return true;
+				}
+				//loop for maafia
+				else if(team==2) {
+					for(int j=1;j<numPlayers;j++) {
+						if((playerActions[j][1]==1)&&(playerActions[j][12]==1)) {
+							return false;
+						}
+						if((playerActions[j][1]==1)&&(playerActions[j][12]==3)) {
+							return false;
+						}
+						if((playerActions[j][1]==1)&&(playerActions[j][12]==6)) {
+							return false;
+						}
+					}
+					//if loop gets here, mafia have won the game
+					channel.sendTyping().queue();
+					channel.sendMessage("---------------------------------").queue();
+					channel.sendMessage("Mafia win the game!").queue(message -> message.addReaction(reactionWi).queue());
+					for(int k=1;k<numPlayers;k++) {
+						//check for GA win
+						if((playerActions[k][0]==11)&&(playerActions[playerActions[k][3]][1]==1)) {
+							channel.sendMessage("Guardian Angel also wins the game!")
+							.queue(message -> message.addReaction(reactionWi).queue());
+						}
+						//check for Parasite win
+						if((playerActions[k][0]==10)&&(playerActions[k][1]==1)) {
+							channel.sendMessage(names[k]+" wins as a Parasite!")
+							.queue(message -> message.addReaction(reactionWi).queue());
+						}
+					}
+					channel.sendMessage("Enter either \"!again\" to play with the same players, or \"!done\" to end match.").queue();
+					winner=true;
+					night=false;
+					vote=false;
+					return true;
+				}
+				//loop for neutral killings
+				else if(team==3) {
+					for(int j=1;j<numPlayers;j++) {
+						if((playerActions[j][1]==1)&&(playerActions[j][12]==1)) {
+							return false;
+						}
+						if((playerActions[j][1]==1)&&(playerActions[j][12]==2)) {
+							return false;
+						}
+						//only wins with other neutral evils of same class
+						if((playerActions[j][1]==1)&&(playerActions[j][12]==3)) {
+							if(playerActions[j][0]!=playerActions[i][0]) {
+								return false;
+							}
+						}
+						if((playerActions[j][1]==1)&&(playerActions[j][12]==6)) {
+							return false;
+						}
+					}
+					//if loop gets here, they have won the game
+					channel.sendTyping().queue();
+					channel.sendMessage("---------------------------------").queue();
+					channel.sendMessage(GetRole(i, 1) +" wins the game!").queue(message -> message.addReaction(reactionWi).queue());
+					for(int k=1;k<numPlayers;k++) {
+						//check for GA win
+						if((playerActions[k][0]==11)&&(playerActions[playerActions[k][3]][1]==1)) {
+							channel.sendMessage("Guardian Angel also wins the game!")
+							.queue(message -> message.addReaction(reactionWi).queue());
+						}
+						//check for Parasite win
+						if((playerActions[k][0]==10)&&(playerActions[k][1]==1)) {
+							channel.sendMessage(names[k]+" wins as a Parasite!")
+							.queue(message -> message.addReaction(reactionWi).queue());
+						}
+					}
+					channel.sendMessage("Enter either \"!again\" to play with the same players, or \"!done\" to end match.").queue();
+					winner=true;
+					night=false;
+					vote=false;
+					return true;
+				}
+				//loop for vampires
+				else if(team==6) {
+					for(int j=1;j<numPlayers;j++) {
+						if((playerActions[j][1]==1)&&(playerActions[j][12]==1)) {
+							return false;
+						}
+						if((playerActions[j][1]==1)&&(playerActions[j][12]==2)) {
+							return false;
+						}
+						if((playerActions[j][1]==1)&&(playerActions[j][12]==3)) {
+							return false;
+						}
+					}
+					//if loop gets here, vampires have won the game
+					channel.sendTyping().queue();
+					channel.sendMessage("---------------------------------").queue();
+					channel.sendMessage("Vampires win the game!").queue(message -> message.addReaction(reactionWi).queue());
+					for(int k=1;k<numPlayers;k++) {
+						//check for GA win
+						if((playerActions[k][0]==11)&&(playerActions[playerActions[k][3]][1]==1)) {
+							channel.sendMessage("Guardian Angel also wins the game!")
+							.queue(message -> message.addReaction(reactionWi).queue());
+						}
+						//check for Parasite win
+						if((playerActions[k][0]==10)&&(playerActions[k][1]==1)) {
+							channel.sendMessage(names[k]+" wins as a Parasite!")
+							.queue(message -> message.addReaction(reactionWi).queue());
+						}
+					}
+					channel.sendMessage("Enter either \"!again\" to play with the same players, or \"!done\" to end match.").queue();
+					winner=true;
+					night=false;
+					vote=false;
+					return true;
+				}
+			}
+		}
+		//if only neutral remains
+		for(int i=1;i<numPlayers;i++) { 
+			if(playerActions[i][12]==5) {
+				channel.sendTyping().queue();
+				channel.sendMessage("---------------------------------").queue();
+				channel.sendMessage("Neutral Evils win the game!").queue(message -> message.addReaction(reactionWi).queue());
+				for(int k=1;k<numPlayers;k++) {
+					//check for GA win
+					if((playerActions[k][0]==11)&&(playerActions[playerActions[k][3]][1]==1)) {
+						channel.sendMessage("Guardian Angel also wins the game!")
+						.queue(message -> message.addReaction(reactionWi).queue());
+					}
+					//check for Parasite win
+					if((playerActions[k][0]==10)&&(playerActions[k][1]==1)) {
+						channel.sendMessage(names[k]+" wins as a Parasite!")
+						.queue(message -> message.addReaction(reactionWi).queue());
+					}
+				}
+				channel.sendMessage("Enter either \"!again\" to play with the same players, or \"!done\" to end match.").queue();
+				winner=true;
+				night=false;
+				vote=false;
+				return true;
+			}
+		}
+		channel.sendTyping().queue();
+		channel.sendMessage("---------------------------------").queue();
+		channel.sendMessage("No teams are left to win the game.").queue(message -> message.addReaction(reactionDe).queue());
+		for(int k=1;k<numPlayers;k++) {
+			//check for GA win
+			if((playerActions[k][0]==11)&&(playerActions[playerActions[k][3]][1]==1)) {
+				channel.sendMessage("Guardian Angel also wins the game!")
+				.queue(message -> message.addReaction(reactionWi).queue());
+			}
+			//check for Parasite win
+			if((playerActions[k][0]==10)&&(playerActions[k][1]==1)) {
+				channel.sendMessage(names[k]+" wins as a Parasite!")
+				.queue(message -> message.addReaction(reactionWi).queue());
+			}
+		}
+		channel.sendMessage("Enter either \"!again\" to play with the same players, or \"!done\" to end match.").queue();
+		winner=true;
+		night=false;
+		vote=false;
+		return true;
+	} 
+	//check for upgrades function
+	public void CheckUpgrade() {
+		int HV=0, GF=0, Maf=0;
+		//this loop finds out who is alive
+		for(int j=1;j<numPlayers;j++) { 
+			//Head Vampire
+			if((playerActions[j][0]==19)&&(HV!=2)) {
+				if(playerActions[j][1]==1) {
+					HV=2;
+				}
+				else HV=1;
+			}
+			//Godfather
+			if((playerActions[j][0]==15)&&(GF!=2)) {
+				if(playerActions[j][1]==1) {
+					GF=2;
+				}
+				else GF=1;
+			}
+			//Mafioso
+			if((playerActions[j][0]==16)&&(Maf!=2)) {
+				if(playerActions[j][1]==1) {
+					Maf=2;
+				}
+				else Maf=1;
+			}
+		}
+		//checks for replacement
+		for(int i=1;i<numPlayers;i++) {
+			//upgrade basic vamp
+			if((playerActions[i][0]==20)&&(playerActions[i][1]==1)&&(HV!=2)) { 
+				playerActions[i][0]=19;
+				SendRole(i, 0);
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were promoted "
+						+ "to Head Vampire!")).queue(message -> message.addReaction(reactionNd).queue());
+				HV=2;
+			}
+			//upgrade mafioso to gf
+			if((playerActions[i][0]==16)&&(playerActions[i][1]==1)&&(GF==1)) {
+				playerActions[i][0]=15;
+				SendRole(i, 0);
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were promoted "
+						+ "to Godfather!")).queue(message -> message.addReaction(reactionNd).queue());
+				GF=2;
+			}
+			//tells GA the bad news
+			if(playerActions[i][0]==11) {
+				if(playerActions[playerActions[i][3]][1]==0) {
+					players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Your target "
+							+ "died!")).queue(message -> message.addReaction(reactionDe).queue());
+					players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You are now a jester"))
+					.queue(message -> message.addReaction(reactionKK).queue());
+					playerActions[i][0]=8;
+					playerActions[i][5]=0;
+					SendRole(i, 0);
+				}
+			}
+			//tells Bounty the bad news
+			if(playerActions[i][0]==24) {
+				if((playerActions[playerActions[i][3]][1]==0)&&(playerActions[i][5]!=1)) {
+					players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Your target "
+							+ "died at night!")).queue(message -> message.addReaction(reactionDe).queue());
+					players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You are now a jester"))
+					.queue(message -> message.addReaction(reactionKK).queue());
+					playerActions[i][0]=8;
+					SendRole(i, 0);
+				}
+			}
+		}
+		//more complicated upgrades
+		for(int i=1;i<numPlayers;i++) {
+			//upgrade basic maf to mafioso
+			if((playerActions[i][0]==18)&&(playerActions[i][1]==1)&&(Maf!=2)&&(GF!=2)) {
+				playerActions[i][0]=16;
+				SendRole(i, 0);
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were promoted "
+						+ "to Mafioso!")).queue(message -> message.addReaction(reactionNd).queue());
+				Maf=2;
+			}//upgrade basic maf if mafioso dies while there is a GF
+			else if((playerActions[i][0]==18)&&(playerActions[i][1]==1)&&(GF==2)&&(Maf==1)) { 
+				playerActions[i][0]=16;
+				SendRole(i, 0);
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were promoted "
+						+ "to Mafioso!")).queue(message -> message.addReaction(reactionNd).queue());
+				Maf=2;
+			}
+			//upgrade basic maf if there literally is no attacking mafia
+			else if((playerActions[i][0]==18)&&(playerActions[i][1]==1)&&(GF==0)&&(Maf==0)) {
+				playerActions[i][0]=16;
+				SendRole(i, 0);
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were promoted "
+						+ "to Mafioso!")).queue(message -> message.addReaction(reactionNd).queue());
+				Maf=2;
+			}
+		}
+		//more complicated upgrades part 2
+		for(int i=1;i<numPlayers;i++) {
+			//upgrade other maf if no basic
+			if((Maf==1)&&(GF!=2)) {
+				if((playerActions[i][0]==17)||(playerActions[i][0]==21)||(playerActions[i][0]==22)) {
+					if(playerActions[i][1]==1) {
+						playerActions[i][0]=16;
+						playerActions[i][5]=0;
+						SendRole(i, 0);
+						players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were promoted "
+								+ "to Mafioso!")).queue(message -> message.addReaction(reactionNd).queue());
+						Maf=2;
+					}
+				}
+			} 
+			//upgrade other maf if no basic or attacking
+			else if((Maf==0)&&(GF==0)) {
+				if((playerActions[i][0]==17)||(playerActions[i][0]==21)||(playerActions[i][0]==22)) {
+					if(playerActions[i][1]==1) {
+						playerActions[i][0]=16;
+						playerActions[i][5]=0;
+						SendRole(i, 0);
+						players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were promoted "
+								+ "to Mafioso!")).queue(message -> message.addReaction(reactionNd).queue());
+						Maf=2;
+					}
+				}
+			}
+		}
+	}
+	
+	//0=role, 1=alive?, 2=action, 3=target(1), 4=target(2), 5=charges left, 6=immune?
+		//7=evil?, 8=poison?, 9=doused?, 10=G-immune?, 11=linked?, 12=team, 13=vote
+	
+	//math function that figures out what happend
+	public void Math() {
+		int Swap1 =0, Swap2 =0, ww=0, wwT=0, Loop=0, doc=1, frame=1, T1=0, T2=0;
+		//reset dead counter
+		dead=0;
+		int c=1;
+		for(int i=1;i<numPlayers;i++) { 
+			voteList[i]=0;
+			counterList[i]=0;
+			antiVList[i]=0;
+			//update poisoned players
+			if(playerActions[i][8]==1) { 
+				playerActions[i][8]=2;
+			}
+			//parasite action
+			if(playerActions[i][0]==10) {
+				T1=playerActions[i][3];
+				//check that target is good
+				if((playerActions[T1][11]!=0)||(playerActions[T1][0]==10)) {
+					players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("The person you "
+						+ "tried to link to is either already linked, or yourself. Nothing happened.")).queue();
+				}
+				//follow through
+				else {
+					playerActions[T1][11]=Linkc;
+					playerActions[i][11]=Linkc;
+					//make sure pairs are recorded
+					Linkc++;
+					String name1 = names[T1];
+					String name2 = names[i];
+					players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You have been "
+							+ "linked with "+ name1 +". If either of you die, the other will die of guilt. "
+							+ "\nYou now win the game with this person!"))
+					.queue(message -> message.addReaction(reactionKK).queue());
+					players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You have been "
+							+ "linked with "+ name2 +". If either of you die, the other will die of guilt. "
+							+ "\nYou now win the game with this person!"))
+					.queue(message -> message.addReaction(reactionKK).queue());
+					playerActions[i][5]=0;
+				}
+				T1=0;
+				
+			}
+			//Bus Driver actions
+			if(playerActions[i][0]==6) {
+				if(playerActions[i][2]!=2) {
+					Swap1=playerActions[i][3];
+					Swap2=playerActions[i][4];
+					//Let targets know
+					players[Swap1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were transported to another location"))
+					.queue(message -> message.addReaction(reactionBl).queue());
+					players[Swap2].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were transported to another location"))
+					.queue(message -> message.addReaction(reactionBl).queue());
+				}
+			}
+			//Veteran actions
+			if(playerActions[i][0]==5) {
+				if((playerActions[i][5]!=0)&&(playerActions[i][2]!=2)) {
+					VetList[c]=i;
+					c++;
+					playerActions[i][5]=playerActions[i][5]-1;
+				}
+			}
+			
+		}
+		c=1;
+		//Werewolf Actions
+		for(int i=1;i<numPlayers;i++) { 
+			if(playerActions[i][0]==23) {
+				//check if they are attacking
+				if(playerActions[i][2]==1) {
+					//check target
+					T1=CheckSwap(i, Swap1, Swap2, 1);
+					int v=0;
+					//check for vet
+					for(int j=1;j<numPlayers;j++) {
+						if((T1==VetList[j])&&(VetList[j]!=0)) {
+							LoopList[Loop]=i;
+							TargetList[Loop]=T1;
+							Loop++;
+							v=1;
+						}
+					}
+					//attack stuff
+					if(v==0) {
+						ww=i;
+						wwT=T1;
+						WWList[c]=T1;
+						c++;
+					}
+				}
+				//stays home to ambush
+				else if(playerActions[i][3]==2){
+					WWList[c]=i;
+					c++;
+					players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You stayed home to"
+						+ " wait in ambush last night.")).queue();
+				}
+			}
+			T1=0;
+		}
+		c=1;
+		for(int i=1;i<numPlayers;i++) { 
+			//Dancer actions
+			if(playerActions[i][0]==7) {
+				if(playerActions[i][2]!=2) {
+					T1=CheckSwap(i, Swap1, Swap2, 1);
+					int v=0;
+					for(int j=1;j<numPlayers;j++) {
+						//check vet
+						if((T1==VetList[j])&&(VetList[j]!=0)) {
+							LoopList[Loop]=i;
+							TargetList[Loop]=T1;
+							Loop++;
+							v=1;
+						}
+						//check ww
+						else if((T1==WWList[j])&&(WWList[j]!=i)&&(WWList[j]!=0)) {
+							LoopList[Loop]=i;
+							TargetList[Loop]=T1;
+							Loop++;
+							v=1;
+						}
+						
+					}
+					if(v==0) {
+						BlockList[c]=T1;
+						c++;
+					}
+					T1=0;
+				}
+			}
+			//Consort actions
+			else if(playerActions[i][0]==17) {
+				if(playerActions[i][2]!=2) {
+					T1=CheckSwap(i, Swap1, Swap2, 1);
+					int v=0;
+					for(int j=1;j<numPlayers;j++) {
+						//check vet
+						if((T1==VetList[j])&&(VetList[j]!=0)) {
+							LoopList[Loop]=i;
+							TargetList[Loop]=T1;
+							Loop++;
+							v=1;
+						}
+						//check ww
+						else if((T1==WWList[j])&&(WWList[j]!=i)&&(WWList[j]!=0)) {
+							LoopList[Loop]=i;
+							TargetList[Loop]=T1;
+							Loop++;
+							v=1;
+						}
+						
+					}
+					if(v==0) {
+						BlockList[c]=T1;
+						c++;
+					}
+					T1=0;
+				}
+			}
+		}
+		for(int i=1;i<numPlayers;i++) { 
+			//Doctor actions
+			if(playerActions[i][0]==2) {
+				if((playerActions[i][2]!=2)&&(CheckBlock(i)==false)) {
+					T1=CheckSwap(i, Swap1, Swap2, 1);
+					int v=0;
+					for(int j=1;j<numPlayers;j++) {
+						//check vet
+						if((T1==VetList[j])&&(VetList[j]!=0)) {
+							LoopList[Loop]=i;
+							TargetList[Loop]=T1;
+							Loop++;
+							v=1;
+						}
+						//check ww
+						else if((T1==WWList[j])&&(WWList[j]!=i)&&(WWList[j]!=0)) {
+							LoopList[Loop]=i;
+							TargetList[Loop]=T1;
+							Loop++;
+							v=1;
+						}
+						
+					}
+					if(v==0) {
+						DocList[doc]=T1;
+						doc++;	
+					}
+					T1=0;
+				}
+				//Witch actions
+				else if(playerActions[i][0]==27) {
+					if((playerActions[i][2]==1)&&(CheckBlock(i)==false)&&(playerActions[i][5]!=0)) {
+						playerActions[i][5]=playerActions[i][5]-1;
+						T1=CheckSwap(i, Swap1, Swap2, 1);
+						int v=0;
+						for(int j=1;j<numPlayers;j++) {
+							//check vet
+							if((T1==VetList[j])&&(VetList[j]!=0)) {
+								LoopList[Loop]=i;
+								TargetList[Loop]=T1;
+								Loop++;
+								v=1;
+							}
+							//check ww
+							else if((T1==WWList[j])&&(WWList[j]!=i)&&(WWList[j]!=0)) {
+								LoopList[Loop]=i;
+								TargetList[Loop]=T1;
+								Loop++;
+								v=1;
+							}
+							
+						}
+						if(v==0) {
+							DocList[doc]=T1;
+							doc++;	
+						}
+						T1=0;
+					}
+				}
+				//GA actions
+				else if(playerActions[i][0]==11) { 
+					if(playerActions[i][2]!=2) {
+						playerActions[i][5]--;
+						T1=playerActions[i][3];
+						playerActions[T1][10]=1;
+						players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You have been "
+								+ "blessed by your Guardian Angel!"))
+						.queue(message -> message.addReaction(reactionBl).queue());
+						T1=0;
+					}
+				}
+			}
+		}
+		//finish up ww attack
+		if(wwT!=0) {
+			if(CheckImmune(wwT, ww)==false) {
+				players[wwT].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+						+ "eaten by the Werewolf! You are dead."))
+				.queue(message -> message.addReaction(reactionDe).queue());
+				playerActions[wwT][1]=0;
+				channel.sendTyping().queue();
+				channel.sendMessage(names[wwT] +" was eaten by the Werewolf!")
+				.queue(message -> message.addReaction(reactionDe).queue());
+				dead=1;
+				CheckLink(wwT);
+			}
+		}
+		//check above people for death
+		for(int i=0;i<Loop;i++) { 
+			if(LoopList[i]!=0) {
+				CheckVet(TargetList[i],LoopList[i]);
+			}
+		}
+		int visit=0, nvm=0;
+		//Godfather actions
+		for(int i=1;i<numPlayers;i++) { 
+			if(playerActions[i][0]==15) {
+				//check for mafioso
+				for(int j=1;j<numPlayers;j++) {
+					if((playerActions[j][0]==16)&&(playerActions[j][1]!=0)) {
+						visit=j;
+					}
+				}
+				//for mafioso orders
+				if((visit!=0)&&(playerActions[i][2]!=2)&&(CheckBlock(visit)==false)) {
+					nvm=1;
+					T1=CheckSwap(i,Swap1,Swap2,1);
+					if((CheckVet(T1, visit)==false)&&(CheckImmune(T1, visit)==false)) {
+						players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+							+ "killed by the Mafia! You are dead.")).queue(message -> message.addReaction(reactionDe).queue());
+						playerActions[T1][1]=0;
+						channel.sendTyping().queue();
+						channel.sendMessage(names[T1] +" was killed by the Mafia!")
+						.queue(message -> message.addReaction(reactionDe).queue());
+						dead=1;
+						CheckLink(T1);
+					}
+				}
+				else if((playerActions[i][2]!=2)&&(CheckBlock(i)==false)) {
+					T1=CheckSwap(i, Swap1, Swap2, 1);
+					if((CheckVet(T1, i)==false)&&(CheckImmune(T1, i)==false)) {
+						players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+							+ "killed by the Mafia! You are dead.")).queue(message -> message.addReaction(reactionDe).queue());
+						playerActions[T1][1]=0;
+						channel.sendTyping().queue();
+						channel.sendMessage(names[T1] +" was killed by the Mafia!")
+						.queue(message -> message.addReaction(reactionDe).queue());
+						dead=1;
+						CheckLink(T1);
+					}
+				}	
+			}
+			T1=0;
+		}	
+		for(int i=1;i<numPlayers;i++) { 
+			//Mafioso actions
+			if(playerActions[i][0]==16) {
+				//check if mafioso can attack
+				if(nvm==0) {
+					if((playerActions[i][2]!=2)&&(CheckBlock(i)==false)) {
+						T1=CheckSwap(i, Swap1, Swap2, 1);
+						if((CheckVet(T1, i)==false)&&(CheckImmune(T1, i)==false)) {
+							players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+								+ "killed by the Mafia! You are dead.")).queue(message -> message.addReaction(reactionDe).queue());
+							playerActions[T1][1]=0;
+							channel.sendTyping().queue();
+							channel.sendMessage(names[T1] +" was killed by the Mafia!")
+							.queue(message -> message.addReaction(reactionDe).queue());
+							dead=1;
+							CheckLink(T1);
+						}
+					}
+				}
+				//stops attack if GF is in control
+				else {
+					players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("The Godfather ordered you "
+							+ "to attack his target.")).queue();
+				}
+				T1=0;
+			}
+			//Framer actions
+			if(playerActions[i][0]==21) {
+				if((playerActions[i][2]!=2)&&(CheckBlock(i)==false)) {
+					T1=CheckSwap(i, Swap1, Swap2, 1);
+					if(CheckVet(T1, i)==false) {
+						FrameList[frame]=T1;
+						frame++;
+					}
+				}
+				T1=0;
+			}
+		}
+		//almost all other actions are here
+		for(int i=1;i<numPlayers;i++) { 
+			switch(playerActions[i][0]) {
+			//Sheriff actions
+			case 3: 
+				if((playerActions[i][2]==2)||(CheckBlock(i)==true)) {
+					break;
+				}
+				T1=CheckSwap(i, Swap1, Swap2, 1);
+				//check for framed target
+				if(CheckFrame(T1)==false) {
+					if(playerActions[T1][7]==1) {
+						players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Your target is"
+								+ " an evil role!")).queue(message -> message.addReaction(reactionKK).queue());
+					}
+					else players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Your target "
+							+ "is not suspicious.")).queue();
+				}
+				else players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Your target "
+						+ "is an evil role!")).queue();
+				CheckVet(T1, i);
+				T1=0;
+				break;
+			//Vigilante actions
+			case 4: 
+				if((playerActions[i][2]==2)||(CheckBlock(i)==true)) {
+					break;
+				}
+				playerActions[i][5]--;
+				T1=CheckSwap(i, Swap1, Swap2, 1);
+				if((CheckVet(T1, i)==false)&&(CheckImmune(T1, i)==false)) {
+					players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+						+ "shot by the Vigilante! You are dead.")).queue(message -> message.addReaction(reactionDe).queue());
+					playerActions[T1][1]=0;
+					channel.sendTyping().queue();
+					channel.sendMessage(names[T1] +" was shot by the Vigilante!")
+					.queue(message -> message.addReaction(reactionDe).queue());
+					dead=1;
+					CheckLink(T1);
+				}
+				T1=0;
+				break;
+			//Analyst actions
+			case 25: 
+				if((playerActions[i][2]==2)||(CheckBlock(i)==true)) {
+					break;
+				}
+				T1=CheckSwap(i, Swap1, Swap2, 1);
+				T2=CheckSwap(i, Swap1, Swap2, 2);
+				//check for framed target
+				if((CheckFrame(T1)==true)||(CheckFrame(T2)==true)) {
+					players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Your targets are "
+							+ "not connected.")).queue();
+				}
+				//check if targets are on the same team
+				else if(playerActions[T1][12]==playerActions[T2][12]) {
+						players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Your targets are"
+								+ " on the same team!")).queue(message -> message.addReaction(reactionKK).queue());
+					}
+				else players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Your targets are "
+						+ "not connected.")).queue();
+				CheckVet(T1, i);
+				CheckVet(T2, i);
+				T1=0;
+				T2=0;
+				break;
+			//Local Witch part 2
+			case 27: 
+				if((playerActions[i][2]==3)||(CheckBlock(i)==true)) {
+					break;
+				}
+				playerActions[i][5]=playerActions[i][5]-1;
+				T1=CheckSwap(i, Swap1, Swap2, 1);
+				if((CheckVet(T1, i)==false)&&(CheckImmune(T1, i)==false)) {
+					players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+						+ "murdered by the Local Witch! You are dead."))
+					.queue(message -> message.addReaction(reactionDe).queue());
+					playerActions[T1][1]=0;
+					channel.sendTyping().queue();
+					channel.sendMessage(names[T1] +" was murdered by the Local Witch!")
+					.queue(message -> message.addReaction(reactionDe).queue());
+					dead=1;
+					CheckLink(T1);
+				}
+				T1=0;
+				break;
+			//Polling Officer actions
+			case 28: 
+				if((playerActions[i][2]==2)||(CheckBlock(i)==true)) {
+					playerActions[i][2]=2;
+					break;
+				}
+				T1=CheckSwap(i, Swap1, Swap2, 1);
+				//target is added to voting list
+				channel.sendTyping().queue();
+				channel.sendMessage("The Polling Officer voted agianst "+ names[T1] +"!")
+				.queue(message -> message.addReaction(reactionKK).queue());
+				voteList[count]=T1;
+				counterList[count]=1;
+				count++;
+				T1=0;
+				break;
+			//Jester actions
+			case 8: 
+				if(playerActions[i][5]==1) {
+					playerActions[i][5]=0;
+					T1=playerActions[i][3];
+					players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+						+ "haunted by the Jester! You are dead.")).queue(message -> message.addReaction(reactionDe).queue());
+					playerActions[T1][1]=0;
+					channel.sendTyping().queue();
+					channel.sendMessage(names[T1] +" was haunted by the Jester!")
+					.queue(message -> message.addReaction(reactionDe).queue());
+					dead=1;
+					CheckLink(T1);
+					T1=0;
+				}
+				break;
+			//Amnesiac actions
+			case 9: 
+				if((playerActions[i][2]==2)||(CheckBlock(i)==true)) {
+					break;
+				}
+				T1=playerActions[i][3];
+				playerActions[i][0]=playerActions[T1][0];
+				SendRole(i, 0);
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You will only be added "
+						+ "to team chats once night comes again.\nAvoid killing teamates by accident!"))
+				.queue(message -> message.addReaction(reactionKK).queue());
+				channel.sendTyping().queue();
+				channel.sendMessage("The Amnesiac remembered that they were a(n) "+ GetRole(i, 1) +"!")
+				.queue(message -> message.addReaction(reactionKK).queue());
+				T1=0;
+				break;
+			//Serial Killer actions
+			case 12: 
+				if((playerActions[i][2]==2)||(CheckBlock(i)==true)) {
+					break;
+				}
+				T1=CheckSwap(i, Swap1, Swap2, 1);
+				if((CheckVet(T1, i)==false)&&(CheckImmune(T1, i)==false)) {
+					players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+						+ "murdered by the Serial Killer! You are dead."))
+					.queue(message -> message.addReaction(reactionDe).queue());
+					playerActions[T1][1]=0;
+					channel.sendTyping().queue();
+					channel.sendMessage(names[T1] +" was murdered by the Serial Killer!")
+					.queue(message -> message.addReaction(reactionDe).queue());
+					dead=1;
+					CheckLink(T1);
+				}
+				T1=0;
+				break;
+			//Arsonist actions
+			case 13: 
+				if((playerActions[i][2]==3)||(CheckBlock(i)==true)) {
+					break;
+				}
+				//if Arsonist ignites
+				if(playerActions[i][2]==2) playerActions[i][3]=i;
+				T1=CheckSwap(i, Swap1, Swap2,1);
+				if((playerActions[i][2]==2)&&(CheckVet(T1, i)==false)) {
+					//all doused targets die
+					for(int j=1;j<numPlayers;j++) {
+						if((playerActions[j][9]==1)&&(playerActions[j][1]==1)) {
+							players[j].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+									+ "burned by the Arsonist! You are dead."))
+							.queue(message -> message.addReaction(reactionDe).queue());
+							playerActions[j][1]=0;
+							channel.sendTyping().queue();
+							channel.sendMessage(names[j] +" was burned by the Arsonist!")
+							.queue(message -> message.addReaction(reactionDe).queue());
+							dead=1;
+							CheckLink(j);
+						}
+					}
+					T1=0;
+					break;
+				}
+				if(CheckVet(T1, i)==false) playerActions[T1][9]=1;
+				T1=0;
+				break;
+			//Barman actions
+			case 14: 
+				if((playerActions[i][2]==2)||(CheckBlock(i)==true)) {
+					break;
+				}
+				T1=CheckSwap(i, Swap1, Swap2,1);
+				//starts player countdown to death
+				if((CheckVet(T1, i)==false)&&(playerActions[T1][8]==0)) {
+					playerActions[T1][8]=1;
+					players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+							+ "poisoned by the Barman. If you are not healed by the following day, you will die!")).queue();
+				}
+				T1=0;
+				break;
+			//Inside-Man actions
+			case 22: 
+				if((playerActions[i][2]==2)||(CheckBlock(i)==true)) {
+					break;
+				}
+				playerActions[i][5]--;
+				T1=playerActions[i][3];
+				//target is unable to be voted
+				antiVList[count]=T1;
+				channel.sendTyping().queue();
+				channel.sendMessage(names[T1] +" cannot be voted for today!").queue();
+				T1=0;
+				break;
+			}
+		}
+		//Head Vampire actions
+		for(int i=1;i<numPlayers;i++) { 
+			if(playerActions[i][0]==19) {
+				if((playerActions[i][2]==2)||(CheckBlock(i)==true)) {
+					if(playerActions[i][5]==0) playerActions[i][5]=1;
+				}
+				else {
+					T1=CheckSwap(i, Swap1, Swap2,1);
+					//vampire tries to bite target
+					if((CheckVet(T1, i)==false)&&(CheckImmune(T1, i)==false)) {
+						//does target die from bite?
+						if((playerActions[T1][0]==11)||(playerActions[T1][0]==14)||(playerActions[T1][0]==16)||(playerActions[T1][0]==17)
+								||(playerActions[T1][0]==18)||(playerActions[T1][0]==21)||(playerActions[T1][0]==22)) {
+							players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+								+ "murdered by a Vampire! You are dead."))
+							.queue(message -> message.addReaction(reactionDe).queue());
+							playerActions[T1][1]=0;
+							channel.sendTyping().queue();
+							channel.sendMessage(names[T1] +" was murdered by a Vampire!")
+							.queue(message -> message.addReaction(reactionDe).queue());
+							dead=1;
+							CheckLink(T1);
+						}
+						else if((playerActions[T1][0]==19)||(playerActions[T1][0]==20)){
+							players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You tried to bite a "
+									+ "fellow Vampire, it was very awkward.")).queue();
+							players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("A fellow Vampire tried "
+									+ "to bite you, it was very awkward.")).queue();
+						}
+						else {
+							playerActions[T1][0]=20;
+							playerActions[i][5]=0;
+							SendRole(T1, 0);
+							players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+									+ "bitten by a Vampire! You are now a Turned Vampire.")).queue();
+							players[T1].openPrivateChannel().flatMap(channel -> channel.sendMessage("You will only be added "
+									+ "to team chats once night comes again.\nAvoid killing teamates by accident!"))
+							.queue(message -> message.addReaction(reactionKK).queue());
+						}
+					}
+				}
+				T1=0;
+			}
+		}
+		//Let non action people know they were roleblocked
+		for(int i=1;i<numPlayers;i++) { 
+			if(BlockList[i]!=0) {
+				players[BlockList[i]].openPrivateChannel().flatMap(channel -> channel.sendMessage("Someone tried to roleblock you!"))
+				.queue(message -> message.addReaction(reactionBl).queue());
+			}
+		}
+		//update poison
+		for(int i=1;i<numPlayers;i++) { 
+			if((playerActions[i][8]==1)||(playerActions[i][8]==2)) {
+				//check for GA
+				if(playerActions[i][10]==1) {
+					playerActions[i][8]=0;
+					players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+						+ "saved from the poison by your Guardian Angel!"))
+					.queue(message -> message.addReaction(reactionHe).queue());
+				}
+				//check for healer
+				else {
+					for(int j=1;j<numPlayers;j++) {
+						if(DocList[j]==i){
+							playerActions[i][8]=0;
+							players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+								+ "saved from the poison by a Healer!")).queue(message -> message.addReaction(reactionHe).queue());
+						}
+					}
+				}
+				//check if they are dead
+				if(playerActions[i][8]==2) {
+					players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+							+ "poisoned by the Barman! You are dead.")).queue(message -> message.addReaction(reactionDe).queue());
+					dead=1;
+					playerActions[i][1]=0;
+					channel.sendTyping().queue();
+					channel.sendMessage(names[i] +" was killed by the Barman!")
+					.queue(message -> message.addReaction(reactionDe).queue());
+					CheckLink(i);
+				}
+			}
+		}
+		//clean up and reset
+		CheckUpgrade();
+		if(dead==0) {
+			channel.sendTyping().queue();
+			channel.sendMessage("No one died last night").queue(message -> message.addReaction(reactionNd).queue());
+		}
+		for(int i=1;i<numPlayers;i++) {
+			DocList[i]=0;
+			BlockList[i]=0;
+			VetList[i]=0;
+			WWList[i]=0;
+			LoopList[i]=0;
+			FrameList[i]=0;
+			TargetList[i]=0;
+			if(playerActions[i][1]==0) {
+				playerActions[i][13]=1;
+			}
+			if(playerActions[i][10]==1) {
+				playerActions[i][10]=0;
+			}
+			if((playerActions[i][0]!=11)&&(playerActions[i][0]!=2)&&(playerActions[i][0]!=24)) {
+				playerActions[i][3]=0;
+			}
+			playerActions[i][4]=0;
+			if((playerActions[i][0]==13)||(playerActions[i][0]==25)||(playerActions[i][0]==23)) {
+				playerActions[i][2]=3;
+			}
+			else if(playerActions[i][0]!=28) {
+				playerActions[i][2]=2;
+			}
+		}
+	}
+	//all mini functions for math
+	public boolean CheckHunter() {
+		int c=0;
+		//check if hunter has died function
+		for(int i=1;i<numPlayers;i++) {
+			if((playerActions[i][0]==26)&&(playerActions[i][1]==0)&&(playerActions[i][5]==1)){
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("Please enter who you would like to kill"
+						+ " using \"!kill\", with the target number following.")).queue();
+				//tells them who is alive
+				String list="";
+				for(int j=1;j<numPlayers;j++) {
+					if((playerActions[j][1]==1)&&(i!=j)) {
+						c=1;
+						String k = names[j];
+						int t = j;
+						if(j==1) list= list + k +" ("+t+")";
+						else list= list + "\n"+ k +" ("+t+")";
+					}
+				}
+				EmbedBuilder alive = new EmbedBuilder().setTitle("The following people are alive:")
+						.setDescription(list)
+						.setColor(0x0000ff);
+				players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(alive.build())).queue();
+				channel.sendTyping().queue();
+				channel.sendMessage(names[i] +" was the Hunter, they will now choose a target to kill!")
+				.queue(message -> message.addReaction(reactionKK).queue());
+			}
+		}
+		if((c!=0)) return true;
+		else return false;
+	}
+	public boolean CheckVet(int A, int p) {
+		//check for a vet or ww function
+		for(int i=1;i<numPlayers;i++) {
+			//check for vet target
+			if((VetList[i]==A)&&(VetList[i]!=0)) {
+				//check for GA
+				if(playerActions[p][10]==1){
+					players[p].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+							+ "saved from the Veteran by your Guardian Angel!"))
+					.queue(message -> message.addReaction(reactionHe).queue());
+					return true;
+				}
+				//check for healer
+				for(int j=1;j<numPlayers;j++) {
+					if(DocList[j]==p){
+						players[p].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+								+ "saved from the Veteran by a Healer!"))
+						.queue(message -> message.addReaction(reactionHe).queue());
+						return true;
+					}
+				}
+				//they're dead
+				players[p].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+						+ "killed by the Veteran! You are dead.")).queue(message -> message.addReaction(reactionDe).queue());
+				playerActions[p][1]=0;
+				channel.sendTyping().queue();
+				channel.sendMessage(names[p] +" was killed by the Veteran!")
+				.queue(message -> message.addReaction(reactionDe).queue());
+				dead=1;
+				CheckLink(p);
+				return true;
+			}
+			//check for ww target
+			else if((WWList[i]==A)&&(WWList[i]!=0)) {
+				//check for GA
+				if(playerActions[p][10]==1){
+					players[p].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+							+ "saved from the Werewolf by your Guardian Angel!"))
+					.queue(message -> message.addReaction(reactionHe).queue());
+					return true;
+				}
+				//check for healer
+				for(int j=1;j<numPlayers;j++) {
+					if(DocList[j]==p){
+						players[p].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+								+ "saved from the Werewolf by a Healer!"))
+						.queue(message -> message.addReaction(reactionHe).queue());
+						return true;
+					}
+				}
+				//check for immune
+				if(playerActions[p][6]==1){
+					players[p].openPrivateChannel().flatMap(channel -> channel.sendMessage("Someone tried "
+							+ "to ambush you, but you were immune to their attack."))
+					.queue(message -> message.addReaction(reactionKK).queue());
+					return true;
+				}
+				//they're dead
+				players[p].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+						+ "eaten by the Werewolf! You are dead.")).queue(message -> message.addReaction(reactionDe).queue());
+				playerActions[p][1]=0;
+				channel.sendTyping().queue();
+				channel.sendMessage(names[p] +" was eaten by the Werewolf!")
+				.queue(message -> message.addReaction(reactionDe).queue());
+				dead=1;
+				CheckLink(p);
+				return true;
+			}
+		}
+		return false;
+	}
+	public int CheckSwap(int i, int Swap1, int Swap2, int ex) {
+		//check for swap function
+		int T;
+		//checks first target for swap
+		if(ex==1) {
+			if(playerActions[i][3]==Swap1) T=Swap2;
+			else if(playerActions[i][3]==Swap2) T=Swap1;
+			else T=playerActions[i][3];
+		}
+		//check second target for swap
+		else {
+			if(playerActions[i][4]==Swap1) T=Swap2;
+			else if(playerActions[i][4]==Swap2) T=Swap1;
+			else T=playerActions[i][4];
+		}
+		return T;
+	}
+	public boolean CheckFrame(int p) {
+		for(int j=1;j<numPlayers;j++) {
+			if((playerActions[p][3]==FrameList[j])||(playerActions[p][4]==FrameList[j])) {
+				return true;
+			}
+		}
+		return false;
+	}
+	public void CheckLink(int i) {
+		//check for parasite function
+		if(playerActions[i][11]!=0) {
+			//records parasite ID
+			int n=playerActions[i][11];
+			for(int j=1;j<numPlayers;j++) {
+				//kills anyone with that ID
+				if(playerActions[j][11]==n) {
+					players[j].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+							+ "killed from a heart complication! You are dead."))
+					.queue(message -> message.addReaction(reactionBr).queue());
+					playerActions[j][1]=0;
+					channel.sendTyping().queue();
+					channel.sendMessage(names[j] +" was killed by a heart complication!")
+					.queue(message -> message.addReaction(reactionBr).queue());
+				}
+			}
+		}
+	}
+	public boolean CheckBlock(int p) {
+		//check for block function
+		for(int i=1;i<numPlayers;i++) {
+			//blocks player action if theyre on the list
+			if(BlockList[i]==p) {
+				BlockList[i]=0;
+				players[p].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were role "
+						+ "blocked! Your action did not go through."))
+				.queue(message -> message.addReaction(reactionBl).queue());
+				return true;
+			}
+		}
+		return false;
+	}
+	public boolean CheckImmune(int p, int A) {
+		//check for immune or healed targets function
+		//check for GA
+		if(playerActions[p][10]==1){
+			players[p].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+					+ "saved by your Guardian Angel!"))
+			.queue(message -> message.addReaction(reactionHe).queue());
+			players[A].openPrivateChannel().flatMap(channel -> channel.sendMessage("Your target "
+					+ "was immune to your attack!")).queue(message -> message.addReaction(reactionKK).queue());
+			return true;
+		}
+		//check for immune
+		if(playerActions[p][6]==1){
+			players[A].openPrivateChannel().flatMap(channel -> channel.sendMessage("Your target was immune to your attack!"))
+			.queue(message -> message.addReaction(reactionKK).queue());
+			players[p].openPrivateChannel().flatMap(channel -> channel.sendMessage("Someone tried to kill you, but you were immune."))
+			.queue(message -> message.addReaction(reactionKK).queue());
+			return true;
+			}
+		//check for healer
+		for(int j=1;j<numPlayers;j++) {
+			if(DocList[j]==p){
+				players[p].openPrivateChannel().flatMap(channel -> channel.sendMessage("You were "
+						+ "saved by a Healer!"))
+				.queue(message -> message.addReaction(reactionHe).queue());
+				players[A].openPrivateChannel().flatMap(channel -> channel.sendMessage("Your target "
+						+ "was immune to your attack!")).queue(message -> message.addReaction(reactionKK).queue());
+				return true;
+			}
+		}
+		return false;	
+	}
+	
+	//send role name function
+	public String GetRole(int i, int who) {
+		int u=0;
+		//sends roles based on exact info for setup
+		if(setup==true) u=i;
+		//sends roles based character info
+		else if(who==1) u=playerActions[i][0];
+		//sends roles based on list results
+		else u=(List[i]);
+		switch(u) {
+		//town roles
+		case 1:
+			return "Civilian";
+		case 2:
+			return "Doctor";
+		case 3:
+			return "Sheriff";
+		case 4:
+			return "Vigilante";
+		case 5:
+			return "Veteran";
+		case 6:
+			return "Bus Driver";
+		case 7:
+			return "Dancer";
+		case 25:
+			return "Analyst";
+		case 26:
+			return "Hunter";
+		case 27:
+			return "Local Witch";
+		case 28:
+			return "Polling Officer";
+		case 8:
+			return "Jester";
+		case 9:
+			return "Amnesiac";
+		case 10:
+			return "Parasite";
+		case 11:
+			return "Guardian Angel";
+		case 24:
+			return "Bounty Hunter";
+		case 23:
+			return "Werewolf";
+		case 12:
+			return "Serial Killer";
+		case 13:
+			return "Arsonist";
+		case 14:
+			return "Barman";
+		case 15:
+			return "Godfather";
+		case 16:
+			return "Mafioso";
+		case 17:
+			return "Consort";
+		case 21:
+			return "Framer";
+		case 22:
+			return "Inside Man";
+		case 18:
+			return "Mafia Member";
+		case 19:
+			return "Head Vampire";
+		case 20:
+			return "Turned Vampire";
+		//in case number is called that isn't here
+		default: 
+			return "error "+ u;
+		}
+	}
+	//send role cards function
+	public void SendRole(int i, int help) {
+		switch(playerActions[i][0]) {
+		//town roles
+		case 1:
+			EmbedBuilder role = new EmbedBuilder().setTitle("Civilian (Town)")
+			.setDescription("Possible Actions: None")
+			.setFooter("Goal: Survive", null)
+			.setColor(0x90ee90);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=1;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 2:
+			role = new EmbedBuilder().setTitle("Doctor (Town)")
+			.setDescription("Possible Actions: \n(1) Heal a player\n(2) Do nothing\n(you cannot "
+					+ "heal the same target twice in a row)")
+			.setFooter("Goal: Survive", null)
+			.setColor(0x90ee90);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=1;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 3:
+			role = new EmbedBuilder().setTitle("Sheriff (Town)")
+			.setDescription("Possible Actions: \n(1) Investigate another player\n(2) Do nothing")
+			.setFooter("Goal: Survive", null)
+			.setColor(0x90ee90);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=1;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 4:
+			role = new EmbedBuilder().setTitle("Vigilante (Town)")
+			.setDescription("Possible Actions: \n(1) Kill another player\n(2) Do nothing\n"
+					+ "(You can only shoot (2 or 3) times total)\n(You cannot shoot night 1)")
+			.setFooter("Goal: Survive", null)
+			.setColor(0x90ee90);
+			if(help!=1) {
+				if(numPlayers>=12) playerActions[i][5]=3;
+				else playerActions[i][5]=2;
+				playerActions[i][4]=1;
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=1;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 5:
+			role = new EmbedBuilder().setTitle("Veteran (Town)")
+			.setDescription("Possible Actions: \n(1) Activate self-defence\n(2) Do nothing"
+					+ "\n(kill anyone who visits you, you can only activate (2 or 3) times)")
+			.setFooter("Goal: Survive", null)
+			.setColor(0x90ee90);
+			if(help!=1) {
+				if(numPlayers>=12) playerActions[i][5]=3;
+				else playerActions[i][5]=2;
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=1;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 6:
+			role = new EmbedBuilder().setTitle("Bus Driver (Town)")
+			.setDescription("Possible Actions: \n(1) Make two people swap places\n(2) Do nothing"
+					+ "\n(What would happen to one, instead happens to the other)")
+			.setFooter("Goal: Survive", null)
+			.setColor(0x90ee90);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=1;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 7:
+			role = new EmbedBuilder().setTitle("Dancer (Town)")
+			.setDescription("Possible Actions: \n(1) Distract target player\n(2) Do nothing"
+					+ "\n(You block target player's action)")
+			.setFooter("Goal: Survive", null)
+			.setColor(0x90ee90);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=1;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 25:
+			role = new EmbedBuilder().setTitle("Analyst (Town)")
+			.setDescription("Possible Actions: \n(1) Select two players for a connection"
+					+ "\n(2) Do nothing\n(You cannot select yourself)")
+			.setFooter("Goal: Survive", null)
+			.setColor(0x90ee90);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=1;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 26:
+			role = new EmbedBuilder().setTitle("Hunter (Town)")
+			.setDescription("Possible Actions: None\n(Upon your death, you take another player with you)")
+			.setFooter("Goal: Survive", null)
+			.setColor(0x90ee90);
+			if(help!=1) {
+				playerActions[i][5]=1;
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=1;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 27:
+			role = new EmbedBuilder().setTitle("Local Witch (Town)")
+			.setDescription("Possible Actions: \n(1) Save target player\n(2) Kill target player"
+					+ "\n(3) Do nothing\n(You can only do (2 or 3) abilities throughout the game")
+			.setFooter("Goal: Survive", null)
+			.setColor(0x90ee90);
+			if(help!=1) {
+				if(numPlayers>=10) playerActions[i][5]=3;
+				else playerActions[i][5]=2;
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=1;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 28:
+			role = new EmbedBuilder().setTitle("Polling Officer (Town)")
+			.setDescription("Possible Actions: \n(1) Place a vote on another player\n(2) Do nothing"
+					+ "\n(This is separate from your daytime vote)")
+			.setFooter("Goal: Survive", null)
+			.setColor(0x90ee90);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=1;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		//neutral roles
+		case 8:
+			role = new EmbedBuilder().setTitle("Jester (Neutral, Evil)")
+			.setDescription("Possible Actions: None\n(You get to kill someone if you are voted off by the town)")
+			.setFooter("Goal: Get voted off by the town during the day", null)
+			.setColor(0xb19cd9);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=1;
+				playerActions[i][12]=4;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 9:
+			role = new EmbedBuilder().setTitle("Amnesiac (Neutral)")
+			.setDescription("Possible Actions: \n(1) Become the role of a dead player\n(2) Do nothing")
+			.setFooter("Goal: None (gain a goal from who you become)", null)
+			.setColor(0xadd8e6);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=4;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 10:
+			role = new EmbedBuilder().setTitle("Parasite (Neutral)")
+			.setDescription("Possible Actions: \n(1) Link to another player at the start of the game\n(2) Do nothing"
+					+ "\n(If one of you dies, you both die)")
+			.setFooter("Goal: Survive with partner", null)
+			.setColor(0xF5F5DC);
+			if(help!=1) {
+				playerActions[i][5]=1;
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=4;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 11:
+			role = new EmbedBuilder().setTitle("Guardian Angel (Neutral)")
+			.setDescription("Possible Actions: \n(1) Protect your given target from all incoming damage "
+					+ "\n(2) Do nothing\n(You can protect them (2 or 3) times, "
+					+ "you can protect them even if you are dead)\n(If they die, you become a Jester)")
+			.setFooter("Goal: Your target survives", null)
+			.setColor(0xFFFFFF);
+			if(help!=1) {
+				if(numPlayers>=14) playerActions[i][5]=3;
+				else playerActions[i][5]=2;
+				playerActions[i][6]=0;
+				playerActions[i][7]=0;
+				playerActions[i][12]=4;
+				int o =420;
+				do {
+					playerActions[i][3]=(int)(Math.random()*((numPlayers-1)+1))+1;
+					if((playerActions[i][3]!=i)&&(playerActions[i][3]<numPlayers)) o=69;
+				}while(o==420);
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You must protect: "
+				+ ""+ names[playerActions[i][3]]+" ("+playerActions[i][3]+")")).queue();
+			break;
+		case 24:
+			role = new EmbedBuilder().setTitle("Bounty Hunter (Neutral)")
+			.setDescription("Possible Actions: None\n(Get your target voted off during the day)"
+					+ "(You are immune to basic attacks)\n(If they die at night, you become a Jester)")
+			.setFooter("Goal: Get your target voted off at any cost", null)
+			.setColor(0xC0C0C0);
+			if(help!=1) {
+				playerActions[i][6]=1;
+				playerActions[i][7]=0;
+				playerActions[i][12]=4;
+				int y =420;
+				do {
+					playerActions[i][3]=(int)(Math.random()*((numPlayers-1)+1))+1;
+					if((playerActions[i][3]!=i)&&(playerActions[i][3]<numPlayers)) y=69;
+				}while(y==420);
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage("You must kill: "
+				+ ""+ names[playerActions[i][3]]+" ("+playerActions[i][3]+")")).queue();
+			break;
+		//Neutral killing
+		case 23:
+			role = new EmbedBuilder().setTitle("Werewolf (Neutral Killing, Evil)")
+			.setDescription("Possible Actions: \n(1) Kill target player\n(2) Ambush visitors at home\n(3) Do nothing"
+					+ "\n(Any player visiting your target will also die)\n(You are immune to basic attacks)")
+			.setFooter("Goal: Kill all town / other evils", null)
+			.setColor(0x654321);
+			if(help!=1) {
+				playerActions[i][2]=3;
+				playerActions[i][6]=1;
+				playerActions[i][7]=1;
+				playerActions[i][12]=3;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 12:
+			role = new EmbedBuilder().setTitle("Serial Killer (Neutral Killing, Evil)")
+			.setDescription("Possible Actions: \n(1) Kill target player\n(2) Do nothing"
+					+ "\n(You are immune to basic attacks)")
+			.setFooter("Goal: Kill all town / other evils", null)
+			.setColor(0x0000ff);
+			if(help!=1) {
+				playerActions[i][6]=1;
+				playerActions[i][7]=1;
+				playerActions[i][12]=3;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 13:
+			role = new EmbedBuilder().setTitle("Arsonist (Neutral Killing, Evil)")
+			.setDescription("Possible Actions: \n(1) Douse target player\n(2) Burn all doused players\n(3) Do nothing"
+					+ "\n(You are immune to basic attacks)")
+			.setFooter("Goal: Kill all town / other evils", null)
+			.setColor(0xFFA500);
+			if(help!=1) {
+				playerActions[i][2]=3;
+				playerActions[i][6]=1;
+				playerActions[i][7]=1;
+				playerActions[i][12]=3;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 14:
+			role = new EmbedBuilder().setTitle("Barman (Neutral killing, Evil)")
+			.setDescription("Possible Actions: \n(1) Poison target player \n(2) Do nothing"
+					+ "\n(Targets die the following day if they are not healed)")
+			.setFooter("Goal: Kill all town (you can win with other evils)", null)
+			.setColor(0x808000);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=1;
+				playerActions[i][12]=5;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		//Mafia roles
+		case 15:
+			role = new EmbedBuilder().setTitle("Godfather (Mafia, Evil)")
+			.setDescription("Possible Actions: \n(1) Target player is killed by the killing role in "
+					+ "the mafia\n(2) Do nothing\n(You are immune to basic attacks)")
+			.setFooter("Goal: Kill all town / other evils", null)
+			.setColor(0xFF0000);
+			if(help!=1) {
+				playerActions[i][6]=1;
+				playerActions[i][7]=1;
+				playerActions[i][12]=2;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 16:
+			role = new EmbedBuilder().setTitle("Mafioso (Mafia, Evil)")
+			.setDescription("Possible Actions: \n(1) Kill target player\n(2) Do nothing\n(If there is a Godfather, "
+					+ "they chose your target)\n(If your Godfather dies, you become the Godfather)")
+			.setFooter("Goal: Kill all town / other evils", null)
+			.setColor(0xFF0000);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=1;
+				playerActions[i][12]=2;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 17:
+			role = new EmbedBuilder().setTitle("Consort (Mafia, Evil)")
+			.setDescription("Possible Actions: \n(1) Distract target player\n(2) Do nothing\n(You block target player's action)"
+					+ "\n(If your Mafioso dies, you might become the Mafioso if no one else can)")
+			.setFooter("Goal: Kill all town / other evils", null)
+			.setColor(0xFF0000);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=1;
+				playerActions[i][12]=2;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 21:
+			role = new EmbedBuilder().setTitle("Framer (Mafia, Evil)")
+			.setDescription("Possible Actions: \n(1) Frame target player\n(2) Do nothing\n(You sabotage the town's investigators)"
+					+ "\n(If your Mafioso dies, you might become the Mafioso if no one else can)")
+			.setFooter("Goal: Kill all town / other evils", null)
+			.setColor(0xFF0000);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=1;
+				playerActions[i][12]=2;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 22:
+			role = new EmbedBuilder().setTitle("Inside Man (Mafia, Evil)")
+			.setDescription("Possible Actions: \n(1) Give target player immunity to voting\n(2) Do nothing"
+					+ "\n(You can protect someone (2 or 3) times)"
+					+ "\n(If your Mafioso dies, you might become the Mafioso if no one else can)")
+			.setFooter("Goal: Kill all town / other evils", null)
+			.setColor(0xFF0000);
+			if(help!=1) {
+				if(numPlayers>=12) playerActions[i][5]=3;
+				else playerActions[i][5]=2;
+				playerActions[i][6]=0;
+				playerActions[i][7]=1;
+				playerActions[i][12]=2;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 18:
+			role = new EmbedBuilder().setTitle("Mafia Member (Mafia, Evil)")
+			.setDescription("Possible Actions: None \n(If your Mafioso dies, you might become the Mafioso)")
+			.setFooter("Goal: Kill all town / other evils", null)
+			.setColor(0xFF0000);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=1;
+				playerActions[i][12]=2;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		//Vampires
+		case 19:
+			role = new EmbedBuilder().setTitle("Head Vampire (Vampire, Evil)")
+			.setDescription("Possible Actions: \n(1) Bite target player\n(2) Do nothing\n(they are converted "
+					+ "into a vampire if it is possible. (they will die if they are not convertable or immune)")
+			.setFooter("Goal: Kill/convert everyone", null)
+			.setColor(0xA9A9A9);
+			if(help!=1) {
+				playerActions[i][5]=1;
+				playerActions[i][6]=0;
+				playerActions[i][7]=1;
+				playerActions[i][12]=6;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		case 20:
+			role = new EmbedBuilder().setTitle("Turned Vampire (Vampire, Evil)")
+			.setDescription("Possible Actions: None\n(If your Head Vampire dies, you might become the Head"
+					+ " Vampire)")
+			.setFooter("Goal: Kill/convert everyone", null)
+			.setColor(0xA9A9A9);
+			if(help!=1) {
+				playerActions[i][6]=0;
+				playerActions[i][7]=1;
+				playerActions[i][12]=6;
+			}
+			players[i].openPrivateChannel().flatMap(channel -> channel.sendMessage(role.build())).queue();
+			break;
+		}
+	}
+}
